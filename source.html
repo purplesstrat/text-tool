@@ -1,0 +1,819 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Text Encryptor & Decoder</title>
+  <style>
+    :root{font-family:Inter,ui-sans-serif,system-ui,Arial,sans-serif;color:#111}
+    body{margin:0;background:linear-gradient(180deg,#0f172a 0%,#0b1220 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+    .card{width:100%;max-width:920px;background:#0b1228;border-radius:12px;padding:20px;color:#e6eef8;box-shadow:0 8px 30px rgba(2,6,23,.6)}
+    h1{margin:0 0 10px;font-size:20px}
+    p.desc{margin:0 0 16px;color:#a8b4c8}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    label{display:block;font-size:12px;color:#9fb0d3;margin-bottom:6px}
+    textarea,input,select{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02);color:inherit;font-size:14px}
+    textarea{min-height:120px;resize:vertical}
+    .row{display:flex;gap:8px}
+    button{background:#2563eb;color:white;border:0;padding:10px 12px;border-radius:8px;cursor:pointer;font-weight:600;transition:background .2s}
+    button:hover{background:#1d4ed8}
+    button.ghost{background:transparent;border:1px solid rgba(255,255,255,.06)}
+    .small{padding:8px 10px;font-size:13px}
+    .footer{margin-top:14px;display:flex;gap:8px;align-items:center}
+    .log{margin-top:12px;font-size:13px;color:#9fb0d3;background:rgba(0,0,0,.15);padding:8px;border-radius:8px;max-height:160px;overflow:auto}
+    .hint{font-size:12px;color:#8aa0c8}
+    select{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg fill="%239fb0d3" height="20" viewBox="0 0 24 24" width="20" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/></svg>');background-repeat:no-repeat;background-position:right 8px center;background-size:16px}
+    @media (max-width:800px){.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Text Encryptor & Decoder</h1>
+    <p class="desc">Type a message, choose algorithm, supply a key/password (for some), then Encrypt or Decrypt.</p>
+    <div class="grid">
+      <div>
+        <label for="plaintext">Input (plain text or encoded text to decode)</label>
+        <textarea id="plaintext" placeholder="Type your message here..."></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+          <div style="flex:1">
+            <label for="algorithm">Algorithm</label>
+            <select id="algorithm">
+              <option value="caesar">Caesar Cipher (shift)</option>
+              <option value="rot13">ROT13</option>
+              <option value="xor">XOR (key string)</option>
+              <option value="vigenere">Vigenère (keyword)</option>
+              <option value="base64">Base64 Encode/Decode</option>
+              <option value="aes">AES-GCM (password)</option>
+              <option value="sha256">SHA-256 Hash (one-way)</option>
+              <option value="md5">MD5 Hash (one-way)</option>
+              <option value="atbash">Atbash Cipher</option>
+              <option value="reverse">Reverse Text</option>
+              <option value="morse">Morse Code</option>
+              <option value="hex">Hex Encode/Decode</option>
+              <option value="binary">Binary Encode/Decode</option>
+              <option value="vowelShift">Vowel Shift Cipher</option>
+              <option value="rot47">ROT47 Cipher</option>
+              <option value="pigLatin">Pig Latin</option>
+              <option value="railFence">Rail Fence Cipher (rails)</option>
+              <option value="polybius">Polybius Square</option>
+              <option value="baconian">Baconian Cipher</option>
+              <option value="playfair">Playfair Cipher (keyword)</option>
+              <option value="columnar">Columnar Transposition (keyword)</option>
+              <option value="url">URL Encode/Decode</option>
+              <option value="asciiShift">ASCII Shift Cipher (shift)</option>
+              <option value="affine">Affine Cipher (a,b keys)</option>
+              <option value="hill">Hill Cipher (2x2 matrix)</option>
+              <option value="scytale">Scytale Cipher (diameter)</option>
+            </select>
+          </div>
+          <div style="width:160px">
+            <label for="key">Key / Shift</label>
+            <input id="key" placeholder="Depends on algorithm" />
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button id="encrypt">Encrypt</button>
+          <button id="decrypt" class="ghost">Decrypt</button>
+          <button id="copy" class="ghost small">Copy output</button>
+          <button id="download" class="ghost small">Download</button>
+        </div>
+        <div class="footer">
+          <div class="hint">Output varies by algorithm. Hashing (SHA/MD5) is one-way only (decrypt disabled).</div>
+        </div>
+      </div>
+      <div>
+        <label for="output">Output</label>
+        <textarea id="output" readonly placeholder="Result will appear here..."></textarea>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+  </main>
+  <script>
+    const byId = id => document.getElementById(id);
+    const log = msg => {
+      const l = byId('log');
+      l.innerText = `${new Date().toLocaleTimeString()} — ${msg}\n${l.innerText}`;
+    };
+
+    // Utility functions
+    const toHex = buf => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    const fromHex = hex => new Uint8Array(hex.match(/.{1,2}/g)?.map(b => parseInt(b, 16)) || []);
+    const toB64 = bin => btoa(String.fromCharCode(...new Uint8Array(bin)));
+    const fromB64 = b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const gcd = (a, b) => b ? gcd(b, a % b) : a;
+    const modInverse = (a, m) => { for (let x = 1; x < m; x++) if ((a * x) % m === 1) return x; return 1; };
+
+    // Encryption/Decryption functions
+    function caesarEncrypt(text, shift) {
+      shift = parseInt(shift) % 26 || 1;
+      return text.replace(/[a-zA-Z]/g, c => {
+        const base = c < 'a' ? 65 : 97;
+        return String.fromCharCode((c.charCodeAt(0) - base + shift) % 26 + base);
+      });
+    }
+    function caesarDecrypt(text, shift) {
+      return caesarEncrypt(text, 26 - (parseInt(shift) % 26 || 1));
+    }
+
+    function rot13(text) {
+      return caesarEncrypt(text, 13);
+    }
+
+    function xorProcess(text, key) {
+      const result = new Uint8Array(text.length);
+      for (let i = 0; i < text.length; i++) {
+        result[i] = text.charCodeAt(i) ^ key.charCodeAt(i % key.length);
+      }
+      return result;
+    }
+
+    function vigenereEncrypt(text, key) {
+      let result = '';
+      key = key.toLowerCase().replace(/[^a-z]/g, '');
+      for (let i = 0, j = 0; i < text.length; i++) {
+        const c = text.charCodeAt(i);
+        if ((c >= 65 && c <= 90) || (c >= 97 && c <= 122)) {
+          const base = c < 97 ? 65 : 97;
+          const shift = key.charCodeAt(j % key.length) - 97;
+          result += String.fromCharCode((c - base + shift) % 26 + base);
+          j++;
+        } else {
+          result += text[i];
+        }
+      }
+      return result;
+    }
+    function vigenereDecrypt(text, key) {
+      let result = '';
+      key = key.toLowerCase().replace(/[^a-z]/g, '');
+      for (let i = 0, j = 0; i < text.length; i++) {
+        const c = text.charCodeAt(i);
+        if ((c >= 65 && c <= 90) || (c >= 97 && c <= 122)) {
+          const base = c < 97 ? 65 : 97;
+          const shift = key.charCodeAt(j % key.length) - 97;
+          result += String.fromCharCode((c - base - shift + 26) % 26 + base);
+          j++;
+        } else {
+          result += text[i];
+        }
+      }
+      return result;
+    }
+
+    async function aesEncrypt(text, password) {
+      const enc = new TextEncoder();
+      const keyMaterial = await crypto.subtle.importKey(
+        'raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveKey']
+      );
+      const key = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: enc.encode('salt'), iterations: 100000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt']
+      );
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const encrypted = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv }, key, enc.encode(text)
+      );
+      return toB64(iv) + '.' + toB64(encrypted);
+    }
+    async function aesDecrypt(text, password) {
+      const [ivB64, dataB64] = text.split('.');
+      const enc = new TextEncoder();
+      const keyMaterial = await crypto.subtle.importKey(
+        'raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveKey']
+      );
+      const key = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: enc.encode('salt'), iterations: 100000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['decrypt']
+      );
+      const decrypted = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: fromB64(ivB64) }, key, fromB64(dataB64)
+      );
+      return new TextDecoder().decode(decrypted);
+    }
+
+    async function sha256(text) {
+      const msgBuffer = new TextEncoder().encode(text);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+      return toHex(hashBuffer);
+    }
+    async function md5(text) {
+      const msgBuffer = new TextEncoder().encode(text);
+      const hashBuffer = await crypto.subtle.digest('MD5', msgBuffer);
+      return toHex(hashBuffer);
+    }
+
+    function atbash(text) {
+      return text.replace(/[a-zA-Z]/g, c => {
+        const base = c < 'a' ? 65 : 97;
+        return String.fromCharCode(25 - (c.charCodeAt(0) - base) + base);
+      });
+    }
+
+    function reverseText(text) {
+      return text.split('').reverse().join('');
+    }
+
+    const morseCode = {
+      'A': '.-', 'B': '-...', 'C': '-.-.', 'D': '-..', 'E': '.', 'F': '..-.', 'G': '--.', 'H': '....',
+      'I': '..', 'J': '.---', 'K': '-.-', 'L': '.-..', 'M': '--', 'N': '-.', 'O': '---', 'P': '.--.',
+      'Q': '--.-', 'R': '.-.', 'S': '...', 'T': '-', 'U': '..-', 'V': '...-', 'W': '.--', 'X': '-..-',
+      'Y': '-.--', 'Z': '--..', '0': '-----', '1': '.----', '2': '..---', '3': '...--', '4': '....-',
+      '5': '.....', '6': '-....', '7': '--...', '8': '---..', '9': '----.', ' ': '/'
+    };
+    function morseEncode(text) {
+      return text.toUpperCase().split('').map(c => morseCode[c] || '').join(' ');
+    }
+    function morseDecode(text) {
+      const reverseMorse = Object.fromEntries(Object.entries(morseCode).map(([k, v]) => [v, k]));
+      return text.split(' ').map(c => reverseMorse[c] || '').join('');
+    }
+
+    function hexEncode(text) {
+      return new TextEncoder().encode(text).reduce((acc, b) => acc + b.toString(16).padStart(2, '0'), '');
+    }
+    function hexDecode(hex) {
+      return new TextDecoder().decode(fromHex(hex));
+    }
+
+    function binaryEncode(text) {
+      return text.split('').map(c => c.charCodeAt(0).toString(2).padStart(8, '0')).join(' ');
+    }
+    function binaryDecode(bin) {
+      return bin.split(' ').map(b => String.fromCharCode(parseInt(b, 2))).join('');
+    }
+
+    function vowelShiftEncrypt(text, shift) {
+      const vowels = 'aeiou';
+      return text.split('').map(c => {
+        const lower = c.toLowerCase();
+        if (vowels.includes(lower)) {
+          let idx = (vowels.indexOf(lower) + (parseInt(shift) || 1)) % 5;
+          return c === lower ? vowels[idx] : vowels[idx].toUpperCase();
+        }
+        return c;
+      }).join('');
+    }
+    function vowelShiftDecrypt(text, shift) {
+      return vowelShiftEncrypt(text, 5 - (parseInt(shift) || 1) % 5);
+    }
+
+    function rot47(text) {
+      return text.split('').map(c => {
+        const code = c.charCodeAt(0);
+        return code >= 33 && code <= 126 ? String.fromCharCode(33 + (code + 14) % 94) : c;
+      }).join('');
+    }
+
+    function pigLatinEncrypt(text) {
+      return text.split(' ').map(w => {
+        if (!w) return w;
+        return w.slice(1) + w[0] + 'ay';
+      }).join(' ');
+    }
+    function pigLatinDecrypt(text) {
+      return text.split(' ').map(w => {
+        if (!w.endsWith('ay')) return w;
+        w = w.slice(0, -2);
+        return w.slice(-1) + w.slice(0, -1);
+      }).join(' ');
+    }
+
+    function railFenceEncrypt(text, rails) {
+      rails = parseInt(rails) || 2;
+      if (rails < 2) throw new Error('Rails must be at least 2');
+      const fence = Array(rails).fill().map(() => []);
+      let row = 0, dir = 1;
+      for (let c of text) {
+        fence[row].push(c);
+        row += dir;
+        if (row === rails - 1 || row === 0) dir *= -1;
+      }
+      return fence.map(row => row.join('')).join('');
+    }
+    function railFenceDecrypt(text, rails) {
+      rails = parseInt(rails) || 2;
+      if (rails < 2) throw new Error('Rails must be at least 2');
+      const fence = Array(rails).fill().map(() => Array(text.length).fill(null));
+      let row = 0, col = 0, dir = 1;
+      for (let i = 0; i < text.length; i++) {
+        fence[row][col] = '*';
+        col++;
+        row += dir;
+        if (row === rails - 1 || row === 0) dir *= -1;
+      }
+      let idx = 0;
+      for (let r = 0; r < rails; r++) {
+        for (let c = 0; c < text.length; c++) {
+          if (fence[r][c] === '*' && idx < text.length) {
+            fence[r][c] = text[idx++];
+          }
+        }
+      }
+      let result = '';
+      row = 0; col = 0; dir = 1;
+      for (let i = 0; i < text.length; i++) {
+        result += fence[row][col];
+        col++;
+        row += dir;
+        if (row === rails - 1 || row === 0) dir *= -1;
+      }
+      return result;
+    }
+
+    const polybiusSquare = 'ABCDEFGHIKLMNOPQRSTUVWXYZ'.split('').reduce((acc, c, i) => {
+      acc[c] = `${Math.floor(i / 5) + 1}${(i % 5) + 1}`;
+      return acc;
+    }, {});
+    function polybiusEncrypt(text) {
+      return text.toUpperCase().replace(/J/g, 'I').split('').map(c => polybiusSquare[c] || c).join(' ');
+    }
+    function polybiusDecrypt(text) {
+      const reversePolybius = Object.fromEntries(Object.entries(polybiusSquare).map(([k, v]) => [v, k]));
+      return text.split(' ').map(n => reversePolybius[n] || n).join('');
+    }
+
+    const baconianCode = {
+      'A': 'AAAAA', 'B': 'AAAAB', 'C': 'AAABA', 'D': 'AAABB', 'E': 'AABAA', 'F': 'AABAB', 'G': 'AABBA',
+      'H': 'AABBB', 'I': 'ABAAA', 'J': 'ABAAA', 'K': 'ABABA', 'L': 'ABABB', 'M': 'ABBAA', 'N': 'ABBAB',
+      'O': 'ABBBA', 'P': 'ABBBB', 'Q': 'BAAAA', 'R': 'BAAAB', 'S': 'BAABA', 'T': 'BAABB', 'U': 'BABAA',
+      'V': 'BABAA', 'W': 'BABBA', 'X': 'BABBB', 'Y': 'BBAAA', 'Z': 'BBAAB'
+    };
+    function baconianEncrypt(text) {
+      return text.toUpperCase().split('').map(c => baconianCode[c] || c).join(' ');
+    }
+    function baconianDecrypt(text) {
+      const reverseBaconian = Object.fromEntries(Object.entries(baconianCode).map(([k, v]) => [v, k]));
+      return text.split(' ').map(c => reverseBaconian[c] || c).join('');
+    }
+
+    function generatePlayfairSquare(key) {
+      key = key.toUpperCase().replace(/J/g, 'I').replace(/[^A-Z]/g, '');
+      const alphabet = 'ABCDEFGHIKLMNOPQRSTUVWXYZ';
+      let square = [], seen = new Set();
+      for (let c of key + alphabet) {
+        if (!seen.has(c)) {
+          seen.add(c);
+          square.push(c);
+        }
+      }
+      return Array(5).fill().map((_, i) => square.slice(i * 5, i * 5 + 5));
+    }
+    function playfairEncrypt(text, key) {
+      const square = generatePlayfairSquare(key);
+      text = text.toUpperCase().replace(/J/g, 'I').replace(/[^A-Z]/g, '');
+      let digraphs = [];
+      for (let i = 0; i < text.length; i += 2) {
+        let a = text[i], b = text[i + 1] || 'X';
+        if (a === b) { b = 'X'; i--; }
+        digraphs.push([a, b]);
+      }
+      let result = '';
+      for (let [a, b] of digraphs) {
+        let row1, col1, row2, col2;
+        for (let i = 0; i < 5; i++) {
+          for (let j = 0; j < 5; j++) {
+            if (square[i][j] === a) [row1, col1] = [i, j];
+            if (square[i][j] === b) [row2, col2] = [i, j];
+          }
+        }
+        if (row1 === row2) {
+          result += square[row1][(col1 + 1) % 5] + square[row2][(col2 + 1) % 5];
+        } else if (col1 === col2) {
+          result += square[(row1 + 1) % 5][col1] + square[(row2 + 1) % 5][col2];
+        } else {
+          result += square[row1][col2] + square[row2][col1];
+        }
+      }
+      return result;
+    }
+    function playfairDecrypt(text, key) {
+      const square = generatePlayfairSquare(key);
+      text = text.toUpperCase().replace(/[^A-Z]/g, '');
+      let digraphs = [];
+      for (let i = 0; i < text.length; i += 2) {
+        digraphs.push([text[i], text[i + 1]]);
+      }
+      let result = '';
+      for (let [a, b] of digraphs) {
+        let row1, col1, row2, col2;
+        for (let i = 0; i < 5; i++) {
+          for (let j = 0; j < 5; j++) {
+            if (square[i][j] === a) [row1, col1] = [i, j];
+            if (square[i][j] === b) [row2, col2] = [i, j];
+          }
+        }
+        if (row1 === row2) {
+          result += square[row1][(col1 + 4) % 5] + square[row2][(col2 + 4) % 5];
+        } else if (col1 === col2) {
+          result += square[(row1 + 4) % 5][col1] + square[(row2 + 4) % 5][col2];
+        } else {
+          result += square[row1][col2] + square[row2][col1];
+        }
+      }
+      return result;
+    }
+
+    function columnarEncrypt(text, key) {
+      key = key.toLowerCase().replace(/[^a-z]/g, '');
+      if (!key) throw new Error('Provide a valid keyword');
+      const cols = key.length;
+      const rows = Math.ceil(text.length / cols);
+      const grid = Array(rows).fill().map(() => Array(cols).fill(''));
+      let idx = 0;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          grid[r][c] = idx < text.length ? text[idx++] : 'X';
+        }
+      }
+      const order = key.split('').map((c, i) => [c, i]).sort().map(([_, i]) => i);
+      let result = '';
+      for (let c of order) {
+        for (let r = 0; r < rows; r++) {
+          result += grid[r][c];
+        }
+      }
+      return result;
+    }
+    function columnarDecrypt(text, key) {
+      key = key.toLowerCase().replace(/[^a-z]/g, '');
+      if (!key) throw new Error('Provide a valid keyword');
+      const cols = key.length;
+      const rows = Math.ceil(text.length / cols);
+      const grid = Array(rows).fill().map(() => Array(cols).fill(''));
+      const order = key.split('').map((c, i) => [c, i]).sort().map(([_, i]) => i);
+      let idx = 0;
+      for (let c of order) {
+        for (let r = 0; r < rows; r++) {
+          grid[r][c] = idx < text.length ? text[idx++] : 'X';
+        }
+      }
+      let result = '';
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          result += grid[r][c];
+        }
+      }
+      return result.replace(/X+$/, '');
+    }
+
+    function urlEncode(text) {
+      return encodeURIComponent(text);
+    }
+    function urlDecode(text) {
+      return decodeURIComponent(text);
+    }
+
+    function asciiShiftEncrypt(text, shift) {
+      shift = parseInt(shift) || 1;
+      return text.split('').map(c => String.fromCharCode((c.charCodeAt(0) + shift) % 128)).join('');
+    }
+    function asciiShiftDecrypt(text, shift) {
+      shift = parseInt(shift) || 1;
+      return text.split('').map(c => String.fromCharCode((c.charCodeAt(0) - shift + 128) % 128)).join('');
+    }
+
+    function affineEncrypt(text, key) {
+      const [a, b] = key.split(',').map(n => parseInt(n));
+      if (!a || !b || gcd(a, 26) !== 1) throw new Error('Affine requires two numbers (a,b), a coprime with 26');
+      return text.replace(/[a-zA-Z]/g, c => {
+        const base = c < 'a' ? 65 : 97;
+        const x = c.charCodeAt(0) - base;
+        return String.fromCharCode((a * x + b) % 26 + base);
+      });
+    }
+    function affineDecrypt(text, key) {
+      const [a, b] = key.split(',').map(n => parseInt(n));
+      if (!a || !b || gcd(a, 26) !== 1) throw new Error('Affine requires two numbers (a,b), a coprime with 26');
+      const aInv = modInverse(a, 26);
+      return text.replace(/[a-zA-Z]/g, c => {
+        const base = c < 'a' ? 65 : 97;
+        const x = c.charCodeAt(0) - base;
+        return String.fromCharCode((aInv * (x - b + 26)) % 26 + base);
+      });
+    }
+
+    function hillEncrypt(text, key) {
+      const matrix = key.split(',').map(n => parseInt(n));
+      if (matrix.length !== 4) throw new Error('Hill requires 4 numbers (2x2 matrix)');
+      text = text.toUpperCase().replace(/[^A-Z]/g, '');
+      if (text.length % 2) text += 'X';
+      let result = '';
+      for (let i = 0; i < text.length; i += 2) {
+        const [a, b] = [text.charCodeAt(i) - 65, text.charCodeAt(i + 1) - 65];
+        const [c1, c2] = [
+          (matrix[0] * a + matrix[1] * b) % 26,
+          (matrix[2] * a + matrix[3] * b) % 26
+        ];
+        result += String.fromCharCode(c1 + 65, c2 + 65);
+      }
+      return result;
+    }
+    function hillDecrypt(text, key) {
+      const matrix = key.split(',').map(n => parseInt(n));
+      if (matrix.length !== 4) throw new Error('Hill requires 4 numbers (2x2 matrix)');
+      const det = (matrix[0] * matrix[3] - matrix[1] * matrix[2]) % 26;
+      const detInv = modInverse(det < 0 ? det + 26 : det, 26);
+      const adj = [matrix[3], -matrix[1], -matrix[2], matrix[0]].map(n => (n < 0 ? n + 26 : n) % 26);
+      const invMatrix = adj.map(n => (n * detInv) % 26);
+      let result = '';
+      for (let i = 0; i < text.length; i += 2) {
+        const [a, b] = [text.charCodeAt(i) - 65, text.charCodeAt(i + 1) - 65];
+        const [c1, c2] = [
+          (invMatrix[0] * a + invMatrix[1] * b) % 26,
+          (invMatrix[2] * a + invMatrix[3] * b) % 26
+        ];
+        result += String.fromCharCode(c1 + 65, c2 + 65);
+      }
+      return result;
+    }
+
+    function scytaleEncrypt(text, diameter) {
+      diameter = parseInt(diameter) || 2;
+      if (diameter < 2) throw new Error('Diameter must be at least 2');
+      const rows = Math.ceil(text.length / diameter);
+      let result = '';
+      for (let c = 0; c < diameter; c++) {
+        for (let r = 0; r < rows; r++) {
+          const idx = r * diameter + c;
+          result += idx < text.length ? text[idx] : 'X';
+        }
+      }
+      return result;
+    }
+    function scytaleDecrypt(text, diameter) {
+      diameter = parseInt(diameter) || 2;
+      if (diameter < 2) throw new Error('Diameter must be at least 2');
+      const rows = Math.ceil(text.length / diameter);
+      const grid = Array(rows).fill().map(() => Array(diameter).fill(''));
+      let idx = 0;
+      for (let c = 0; c < diameter; c++) {
+        for (let r = 0; r < rows; r++) {
+          grid[r][c] = idx < text.length ? text[idx++] : 'X';
+        }
+      }
+      let result = '';
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < diameter; c++) {
+          result += grid[r][c];
+        }
+      }
+      return result.replace(/X+$/, '');
+    }
+
+    // UI handlers
+    const plaintext = byId('plaintext'), output = byId('output'), algoSel = byId('algorithm'), keyInput = byId('key');
+    const encryptBtn = byId('encrypt'), decryptBtn = byId('decrypt'), copyBtn = byId('copy'), downloadBtn = byId('download');
+
+    encryptBtn.addEventListener('click', async () => {
+      const algo = algoSel.value, txt = plaintext.value || '', k = keyInput.value;
+      try {
+        if (!txt) throw new Error('Input text is empty');
+        if (algo === 'caesar') {
+          if (!/^\d+$/.test(k)) throw new Error('Caesar requires a numeric shift');
+          output.value = caesarEncrypt(txt, k);
+          log('Caesar encrypted');
+        } else if (algo === 'rot13') {
+          output.value = rot13(txt);
+          log('ROT13 done');
+        } else if (algo === 'xor') {
+          if (!k) throw new Error('Provide key');
+          output.value = toB64(xorProcess(txt, k));
+          log('XOR encrypted (Base64 output)');
+        } else if (algo === 'vigenere') {
+          if (!k || !/^[a-zA-Z]+$/.test(k)) throw new Error('Provide a valid keyword (letters only)');
+          output.value = vigenereEncrypt(txt, k);
+          log('Vigenère encrypted');
+        } else if (algo === 'base64') {
+          output.value = btoa(txt);
+          log('Base64 encoded');
+        } else if (algo === 'aes') {
+          if (!k) throw new Error('Provide password');
+          output.value = await aesEncrypt(txt, k);
+          log('AES-GCM encrypted');
+        } else if (algo === 'sha256') {
+          output.value = await sha256(txt);
+          log('SHA-256 hashed');
+        } else if (algo === 'md5') {
+          output.value = await md5(txt);
+          log('MD5 hashed');
+        } else if (algo === 'atbash') {
+          output.value = atbash(txt);
+          log('Atbash cipher done');
+        } else if (algo === 'reverse') {
+          output.value = reverseText(txt);
+          log('Reversed');
+        } else if (algo === 'morse') {
+          output.value = morseEncode(txt);
+          log('Morse encoded');
+        } else if (algo === 'hex') {
+          output.value = hexEncode(txt);
+          log('Hex encoded');
+        } else if (algo === 'binary') {
+          output.value = binaryEncode(txt);
+          log('Binary encoded');
+        } else if (algo === 'vowelShift') {
+          if (!/^\d+$/.test(k)) throw new Error('Vowel Shift requires a numeric shift');
+          output.value = vowelShiftEncrypt(txt, k);
+          log('Vowel Shift encrypted');
+        } else if (algo === 'rot47') {
+          output.value = rot47(txt);
+          log('ROT47 done');
+        } else if (algo === 'pigLatin') {
+          output.value = pigLatinEncrypt(txt);
+          log('Pig Latin encrypted');
+        } else if (algo === 'railFence') {
+          if (!/^\d+$/.test(k)) throw new Error('Rail Fence requires number of rails');
+          output.value = railFenceEncrypt(txt, k);
+          log('Rail Fence encrypted');
+        } else if (algo === 'polybius') {
+          output.value = polybiusEncrypt(txt);
+          log('Polybius Square encrypted');
+        } else if (algo === 'baconian') {
+          output.value = baconianEncrypt(txt);
+          log('Baconian encrypted');
+        } else if (algo === 'playfair') {
+          if (!k || !/^[a-zA-Z]+$/.test(k)) throw new Error('Playfair requires a valid keyword');
+          output.value = playfairEncrypt(txt, k);
+          log('Playfair encrypted');
+        } else if (algo === 'columnar') {
+          if (!k || !/^[a-zA-Z]+$/.test(k)) throw new Error('Columnar requires a valid keyword');
+          output.value = columnarEncrypt(txt, k);
+          log('Columnar Transposition encrypted');
+        } else if (algo === 'url') {
+          output.value = urlEncode(txt);
+          log('URL encoded');
+        } else if (algo === 'asciiShift') {
+          if (!/^\d+$/.test(k)) throw new Error('ASCII Shift requires a numeric shift');
+          output.value = asciiShiftEncrypt(txt, k);
+          log('ASCII Shift encrypted');
+        } else if (algo === 'affine') {
+          if (!k.includes(',')) throw new Error('Affine requires two numbers (e.g., 5,3)');
+          output.value = affineEncrypt(txt, k);
+          log('Affine encrypted');
+        } else if (algo === 'hill') {
+          if (!k.includes(',')) throw new Error('Hill requires four numbers (e.g., 1,2,3,4)');
+          output.value = hillEncrypt(txt, k);
+          log('Hill encrypted');
+        } else if (algo === 'scytale') {
+          if (!/^\d+$/.test(k)) throw new Error('Scytale requires a numeric diameter');
+          output.value = scytaleEncrypt(txt, k);
+          log('Scytale encrypted');
+        }
+      } catch (e) {
+        output.value = '';
+        log(`Error: ${e.message}`);
+      }
+    });
+
+    decryptBtn.addEventListener('click', async () => {
+      const algo = algoSel.value, txt = plaintext.value || '', k = keyInput.value;
+      try {
+        if (!txt) throw new Error('Input text is empty');
+        if (['sha256', 'md5'].includes(algo)) throw new Error('Hashing is one-way, cannot decrypt');
+        if (algo === 'caesar') {
+          if (!/^\d+$/.test(k)) throw new Error('Caesar requires a numeric shift');
+          output.value = caesarDecrypt(txt, k);
+          log('Caesar decrypted');
+        } else if (algo === 'rot13') {
+          output.value = rot13(txt);
+          log('ROT13 done');
+        } else if (algo === 'xor') {
+          if (!k) throw new Error('Provide key');
+          output.value = new TextDecoder().decode(xorProcess(fromB64(txt), k));
+          log('XOR decrypted');
+        } else if (algo === 'vigenere') {
+          if (!k || !/^[a-zA-Z]+$/.test(k)) throw new Error('Provide a valid keyword (letters only)');
+          output.value = vigenereDecrypt(txt, k);
+          log('Vigenère decrypted');
+        } else if (algo === 'base64') {
+          output.value = atob(txt);
+          log('Base64 decoded');
+        } else if (algo === 'aes') {
+          if (!k) throw new Error('Provide password');
+          output.value = await aesDecrypt(txt, k);
+          log('AES-GCM decrypted');
+        } else if (algo === 'atbash') {
+          output.value = atbash(txt);
+          log('Atbash cipher done');
+        } else if (algo === 'reverse') {
+          output.value = reverseText(txt);
+          log('Reversed');
+        } else if (algo === 'morse') {
+          output.value = morseDecode(txt);
+          log('Morse decoded');
+        } else if (algo === 'hex') {
+          output.value = hexDecode(txt);
+          log('Hex decoded');
+        } else if (algo === 'binary') {
+          output.value = binaryDecode(txt);
+          log('Binary decoded');
+        } else if (algo === 'vowelShift') {
+          if (!/^\d+$/.test(k)) throw new Error('Vowel Shift requires a numeric shift');
+          output.value = vowelShiftDecrypt(txt, k);
+          log('Vowel Shift decrypted');
+        } else if (algo === 'rot47') {
+          output.value = rot47(txt);
+          log('ROT47 done');
+        } else if (algo === 'pigLatin') {
+          output.value = pigLatinDecrypt(txt);
+          log('Pig Latin decrypted');
+        } else if (algo === 'railFence') {
+          if (!/^\d+$/.test(k)) throw new Error('Rail Fence requires number of rails');
+          output.value = railFenceDecrypt(txt, k);
+          log('Rail Fence decrypted');
+        } else if (algo === 'polybius') {
+          output.value = polybiusDecrypt(txt);
+          log('Polybius Square decrypted');
+        } else if (algo === 'baconian') {
+          output.value = baconianDecrypt(txt);
+          log('Baconian decrypted');
+        } else if (algo === 'playfair') {
+          if (!k || !/^[a-zA-Z]+$/.test(k)) throw new Error('Playfair requires a valid keyword');
+          output.value = playfairDecrypt(txt, k);
+          log('Playfair decrypted');
+        } else if (algo === 'columnar') {
+          if (!k || !/^[a-zA-Z]+$/.test(k)) throw new Error('Columnar requires a valid keyword');
+          output.value = columnarDecrypt(txt, k);
+          log('Columnar Transposition decrypted');
+        } else if (algo === 'url') {
+          output.value = urlDecode(txt);
+          log('URL decoded');
+        } else if (algo === 'asciiShift') {
+          if (!/^\d+$/.test(k)) throw new Error('ASCII Shift requires a numeric shift');
+          output.value = asciiShiftDecrypt(txt, k);
+          log('ASCII Shift decrypted');
+        } else if (algo === 'affine') {
+          if (!k.includes(',')) throw new Error('Affine requires two numbers (e.g., 5,3)');
+          output.value = affineDecrypt(txt, k);
+          log('Affine decrypted');
+        } else if (algo === 'hill') {
+          if (!k.includes(',')) throw new Error('Hill requires four numbers (e.g., 1,2,3,4)');
+          output.value = hillDecrypt(txt, k);
+          log('Hill decrypted');
+        } else if (algo === 'scytale') {
+          if (!/^\d+$/.test(k)) throw new Error('Scytale requires a numeric diameter');
+          output.value = scytaleDecrypt(txt, k);
+          log('Scytale decrypted');
+        }
+      } catch (e) {
+        output.value = '';
+        log(`Error: ${e.message}`);
+      }
+    });
+
+    copyBtn.addEventListener('click', () => {
+      if (output.value) {
+        navigator.clipboard.writeText(output.value);
+        log('Output copied to clipboard');
+      } else {
+        log('Nothing to copy');
+      }
+    });
+
+    downloadBtn.addEventListener('click', () => {
+      if (output.value) {
+        const blob = new Blob([output.value], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `encrypted_output_${algoSel.value}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
+        log('Output downloaded');
+      } else {
+        log('Nothing to download');
+      }
+    });
+
+log('Loaded!\nContributors:\nChatGPT\nGrok\nnxyq')
+
+    algoSel.addEventListener('change', () => {
+      const algo = algoSel.value;
+      decryptBtn.disabled = ['sha256', 'md5'].includes(algo);
+      keyInput.placeholder = {
+        caesar: 'Numeric shift (e.g., 3)',
+        xor: 'Key string',
+        vigenere: 'Keyword (letters)',
+        aes: 'Password',
+        vowelShift: 'Numeric shift (e.g., 1)',
+        railFence: 'Number of rails (e.g., 3)',
+        playfair: 'Keyword (letters)',
+        columnar: 'Keyword (letters)',
+        asciiShift: 'Numeric shift (e.g., 1)',
+        affine: 'Two numbers (e.g., 5,3)',
+        hill: 'Four numbers (e.g., 1,2,3,4)',
+        scytale: 'Numeric diameter (e.g., 4)'
+      }[algo] || 'Depends on algorithm';
+    });
+
+    // Initialize
+    algoSel.dispatchEvent(new Event('change'));
+  </script>
+</body>
+</html>
